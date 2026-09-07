@@ -4,27 +4,24 @@ services:
     env: python
     region: oregon
     plan: free
-    buildCommand: |
-      pip install -r requirements.txt
-      python -c "
-      import os
-      os.environ['FASTEMBED_CACHE_PATH'] = '/opt/render/project/src/.fastembed_cache'
-      from fastembed import TextEmbedding
-      print('Pre-downloading embedding model...')
-      TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='/opt/render/project/src/.fastembed_cache')
-      print('Model download complete.')
-      "
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: FASTEMBED_CACHE_PATH
-        value: /opt/render/project/src/.fastembed_cache
+      # --- Required secrets (set via Render dashboard, not here) ---
+      - key: DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      # HF_TOKEN enables the zero-OOM HF Inference API embedding backend.
+      # Get a free token at huggingface.co/settings/tokens (read-only scope).
+      # Without this, the app falls back to local fastembed which OOMs on
+      # the 512 MB free tier.
+      - key: HF_TOKEN
+        sync: false
+      # --- Tunable defaults (safe to override per-environment) ---
       - key: CONFIDENCE_THRESHOLD
         value: "0.35"
       - key: HYBRID_SEARCH_ENABLED
         value: "true"
       - key: AUTO_BOOTSTRAP_CORPUS
         value: "true"
-      - key: DATABASE_URL
-        sync: false
-      - key: GROQ_API_KEY
-        sync: false

@@ -7,3 +7,4 @@ python-dotenv
 fastembed
 rank-bm25
 groq
+requests
