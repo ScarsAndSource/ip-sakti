@@ -1,5 +1,5 @@
 // config.js — include this before any other script on every page.
-window.API_BASE = window.API_BASE || "http://localhost:8000";
+window.API_BASE = window.API_BASE || "https://ip-sakti-vp8d.onrender.com";
 
 window.IPSAKTI = {
   getJurisdiction() {
