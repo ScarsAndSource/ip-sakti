@@ -56,15 +56,33 @@ async def ingest_file(pool, filepath: Path, act_name: str, jurisdiction: str, ca
     print(f"Ingested {len(chunks)} chunks from {act_name}")
 
 
-async def main():
-    pool = await get_pool()
+async def ensure_corpus(pool) -> int:
+    """Populate the bundled statutes exactly once for an empty database.
+
+    Hosting the API without separately running the ingestion command leaves
+    retrieval empty, so every request abstains and Groq is never invoked.
+    This makes a fresh deployment self-contained while preserving any
+    existing indexed corpus unchanged.
+    """
+    async with pool.acquire() as conn:
+        existing_chunks = await conn.fetchval("select count(*) from chunks")
+    if existing_chunks:
+        return existing_chunks
+
     corpus_dir = Path(__file__).parent / "corpus"
     for filename, act_name, jurisdiction, category, url in CORPUS_MANIFEST:
-        fp = corpus_dir / filename
-        if not fp.exists():
-            print(f"MISSING: {fp} - drop the statute text here before running ingest.")
-            continue
-        await ingest_file(pool, fp, act_name, jurisdiction, category, url)
+        filepath = corpus_dir / filename
+        if not filepath.exists():
+            raise FileNotFoundError(f"Bundled corpus file is missing: {filepath}")
+        await ingest_file(pool, filepath, act_name, jurisdiction, category, url)
+
+    async with pool.acquire() as conn:
+        return await conn.fetchval("select count(*) from chunks")
+
+
+async def main():
+    pool = await get_pool()
+    await ensure_corpus(pool)
 
 
 if __name__ == "__main__":

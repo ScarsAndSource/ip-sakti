@@ -105,3 +105,13 @@ async def fetch_all_chunks_for_bm25(
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql, *params)
     return [dict(r) for r in rows]
+
+
+async def get_corpus_stats(pool: asyncpg.Pool) -> dict:
+    """Return a small, non-sensitive deployment diagnostic."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "select (select count(*) from statutes) as statutes, "
+            "(select count(*) from chunks) as chunks"
+        )
+    return dict(row)

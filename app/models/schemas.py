@@ -68,7 +68,7 @@ class QueryResponse(BaseModel):
     citations: list[Citation]
     confidence: float
     abstained: bool
-    generation_mode: Literal["model", "source_fallback", "abstained"] = "model"
+    generation_mode: Literal["model", "source_fallback", "abstained"] = "abstained"
     disclaimer: str = (
         "This is not legal advice. Consult a registered patent agent or "
         "AYUSH-recognized IP cell."

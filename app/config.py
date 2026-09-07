@@ -36,6 +36,9 @@ class Settings:
 
     # --- Retrieval ---
     HYBRID_SEARCH_ENABLED: bool = os.environ.get("HYBRID_SEARCH_ENABLED", "true").lower() == "true"
+    # A fresh Render/Supabase deployment otherwise has an empty `chunks`
+    # table and every query abstains before reaching Groq.
+    AUTO_BOOTSTRAP_CORPUS: bool = os.environ.get("AUTO_BOOTSTRAP_CORPUS", "true").lower() == "true"
 
     # --- Caching ---
     CACHE_TTL_SECONDS: float = float(os.environ.get("CACHE_TTL_SECONDS", 600))

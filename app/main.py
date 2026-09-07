@@ -9,10 +9,11 @@ from fastapi.responses import JSONResponse
 from app.audit.logger import get_recent_queries, log_query
 from app.classifier.classifier import classify
 from app.config import settings
+from app.ingestion.ingest import ensure_corpus
 from app.models.schemas import ClassificationResult, ClassifierAnswers, QueryRequest, QueryResponse
 from app.rag import _answer_cache, _embedding_cache, answer_query
 from app.ratelimit import FixedWindowRateLimiter
-from app.retrieval.db import get_pool
+from app.retrieval.db import get_corpus_stats, get_pool
 from app.retrieval.embeddings import preload_model
 from app.retrieval.hybrid import clear_bm25_cache
 
@@ -28,6 +29,9 @@ async def lifespan(app: FastAPI):
     global pool, _model_ready
     pool = await get_pool()
     preload_model()
+    if settings.AUTO_BOOTSTRAP_CORPUS:
+        chunk_count = await ensure_corpus(pool)
+        logger.info("Corpus ready with %s chunks", chunk_count)
     _model_ready = True
     yield
     await pool.close()
@@ -127,17 +131,29 @@ def health():
 @app.get("/health/ready")
 async def readiness():
     db_ok = False
+    corpus_chunks = 0
     if pool is not None:
         try:
             async with pool.acquire() as conn:
                 await conn.fetchval("select 1")
             db_ok = True
+            corpus_chunks = (await get_corpus_stats(pool))["chunks"]
         except Exception:
             logger.exception("Readiness check: DB ping failed")
 
-    ready = db_ok and _model_ready
-    body = {"ready": ready, "db_ok": db_ok, "model_ready": _model_ready}
+    ready = db_ok and _model_ready and corpus_chunks > 0
+    body = {
+        "ready": ready,
+        "db_ok": db_ok,
+        "model_ready": _model_ready,
+        "corpus_chunks": corpus_chunks,
+    }
     return JSONResponse(status_code=200 if ready else 503, content=body)
+
+
+@app.get("/admin/corpus-stats")
+async def corpus_stats():
+    return await get_corpus_stats(pool)
 
 
 @app.get("/admin/cache-stats")

@@ -121,7 +121,13 @@ async def answer_query(
 
     rows = [dict(r) for r in rows]
 
-    top_scores = [s for s in (r.get("score") for r in rows[:3]) if s is not None]
+    # Hybrid retrieval can rank a BM25-only row ahead of a dense candidate.
+    # Such a row has no cosine `score`, so looking only at fused positions
+    # 1-3 can incorrectly produce 0.0 confidence even when the same result
+    # set contains strong dense matches. Use the first three available dense
+    # scores instead; the SQL score scale remains unchanged and therefore
+    # stays compatible with CONFIDENCE_THRESHOLD.
+    top_scores = [s for s in (r.get("score") for r in rows) if s is not None][:3]
     confidence = sum(top_scores) / len(top_scores) if top_scores else 0.0
 
     if confidence < settings.CONFIDENCE_THRESHOLD:
