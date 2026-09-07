@@ -56,6 +56,11 @@ class QueryRequest(BaseModel):
     query: str
     jurisdiction: Jurisdiction = "india"
     classification: Optional[ClassificationResult] = None
+    # Previous turn's question text (plain string, not an object).
+    # When supplied, it is prepended to the current query before embedding so
+    # that a decontextualised follow-up ("what about the penalty for that?")
+    # retrieves the right corpus rows instead of getting a low-confidence miss.
+    previous_query: Optional[str] = None
 
 
 class QueryResponse(BaseModel):

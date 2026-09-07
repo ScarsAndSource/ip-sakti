@@ -41,8 +41,8 @@ _embed_semaphore = asyncio.Semaphore(settings.EMBED_CONCURRENCY_LIMIT)
 _embed_in_flight: dict[str, asyncio.Future] = {}
 
 
-def _answer_cache_key(query: str, jurisdiction: str, category: str | None) -> str:
-    raw = f"{jurisdiction}|{category or ''}|{query.strip().lower()}"
+def _answer_cache_key(query: str, jurisdiction: str, category: str | None, previous_query: str | None) -> str:
+    raw = f"{jurisdiction}|{category or ''}|{(previous_query or '').strip().lower()}|{query.strip().lower()}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -78,13 +78,22 @@ async def answer_query(
     query: str,
     jurisdiction: str,
     category: str | None = None,
+    previous_query: str | None = None,
 ) -> dict:
-    cache_key = _answer_cache_key(query, jurisdiction, category)
+    cache_key = _answer_cache_key(query, jurisdiction, category, previous_query)
     cached_answer = _answer_cache.get(cache_key)
     if cached_answer is not None:
         return cached_answer
 
-    query_embedding = await _embed_cached(query)
+    # Expand a decontextualised follow-up so the embedding captures the full
+    # intent. "What about the penalty?" alone matches nothing; prepending the
+    # previous question gives the embedder enough signal to pull the right rows.
+    retrieval_query = (
+        f"{previous_query.strip()} {query.strip()}"
+        if previous_query and previous_query.strip()
+        else query
+    )
+    query_embedding = await _embed_cached(retrieval_query)
 
     if settings.HYBRID_SEARCH_ENABLED:
         rows = await hybrid_search(
@@ -115,7 +124,7 @@ async def answer_query(
         return result
 
     sources = rows
-    answer_text = await asyncio.to_thread(generate_answer, query, sources)
+    answer_text = await asyncio.to_thread(generate_answer, query, sources, previous_query)
 
     result = {"answer": answer_text, "citations": sources, "confidence": confidence, "abstained": False}
     _answer_cache.set(cache_key, result)

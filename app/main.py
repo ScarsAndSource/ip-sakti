@@ -73,7 +73,7 @@ async def query(req: QueryRequest):
 
     try:
         result = await asyncio.wait_for(
-            answer_query(pool, req.query, req.jurisdiction, category),
+            answer_query(pool, req.query, req.jurisdiction, category, req.previous_query),
             timeout=settings.QUERY_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:

@@ -32,14 +32,29 @@ def _build_context(sources: list[dict]) -> str:
     )
 
 
-def _call_model(model: str, query: str, context: str) -> str:
+def _call_model(model: str, query: str, context: str, previous_query: str | None = None) -> str:
     client = get_client()
+    messages: list[dict] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+    ]
+    # If there is a previous turn, add it as a prior user message so the
+    # model understands pronouns / references in the follow-up ("that",
+    # "it", "the same act", etc.). We don't persist the previous answer
+    # because it may have abstained; re-attaching only the question is
+    # enough to resolve the reference.
+    if previous_query and previous_query.strip():
+        messages.append({"role": "user", "content": previous_query.strip()})
+        messages.append({
+            "role": "assistant",
+            "content": "[Prior turn — see current sources for the full answer.]",
+        })
+    messages.append({
+        "role": "user",
+        "content": f"Sources:\n{context}\n\nQuestion: {query}",
+    })
     resp = client.chat.completions.create(
         model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Sources:\n{context}\n\nQuestion: {query}"},
-        ],
+        messages=messages,
         temperature=0.1,
     )
     answer = resp.choices[0].message.content
@@ -71,7 +86,7 @@ def _extractive_fallback(query: str, sources: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def generate_answer(query: str, sources: list[dict]) -> str:
+def generate_answer(query: str, sources: list[dict], previous_query: str | None = None) -> str:
     context = _build_context(sources)
 
     attempts = [(settings.GROQ_MODEL, settings.GROQ_MAX_RETRIES)]
@@ -82,7 +97,7 @@ def generate_answer(query: str, sources: list[dict]) -> str:
     for model, max_retries in attempts:
         for attempt in range(1, max_retries + 1):
             try:
-                return _call_model(model, query, context)
+                return _call_model(model, query, context, previous_query)
             except Exception as exc:
                 last_error = exc
                 logger.warning(
