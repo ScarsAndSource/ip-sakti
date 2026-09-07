@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: ip-sakti-backend
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+      python -c "
+      import os
+      os.environ['FASTEMBED_CACHE_PATH'] = '/opt/render/project/src/.fastembed_cache'
+      from fastembed import TextEmbedding
+      print('Pre-downloading embedding model...')
+      TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='/opt/render/project/src/.fastembed_cache')
+      print('Model download complete.')
+      "
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: FASTEMBED_CACHE_PATH
+        value: /opt/render/project/src/.fastembed_cache
+      - key: CONFIDENCE_THRESHOLD
+        value: "0.35"
+      - key: HYBRID_SEARCH_ENABLED
+        value: "true"
+      - key: AUTO_BOOTSTRAP_CORPUS
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false

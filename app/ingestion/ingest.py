@@ -56,6 +56,17 @@ async def ingest_file(pool, filepath: Path, act_name: str, jurisdiction: str, ca
     print(f"Ingested {len(chunks)} chunks from {act_name}")
 
 
+async def _detect_embedding_dim(pool) -> int | None:
+    """Return the vector dimension stored in the chunks table, or None if the
+    table is empty or the embedding column is null."""
+    async with pool.acquire() as conn:
+        # vector_dims() is a pgvector helper that works on any vector column.
+        raw = await conn.fetchval(
+            "select vector_dims(embedding) from chunks where embedding is not null limit 1"
+        )
+    return int(raw) if raw is not None else None
+
+
 async def ensure_corpus(pool) -> int:
     """Populate the bundled statutes exactly once for an empty database.
 
@@ -63,11 +74,38 @@ async def ensure_corpus(pool) -> int:
     retrieval empty, so every request abstains and Groq is never invoked.
     This makes a fresh deployment self-contained while preserving any
     existing indexed corpus unchanged.
+
+    Dimension mismatch guard
+    ------------------------
+    If the chunks table is non-empty but the stored embedding dimension
+    doesn't match the live model (e.g., because the corpus was ingested by
+    the old sentence-transformers backend and the service was later switched
+    to fastembed), the cosine scores will be meaningless and every query will
+    abstain.  We detect this and wipe + re-ingest automatically so the
+    embedding space is always consistent without requiring a manual
+    ``truncate table chunks`` command.
     """
+    # Derive the expected dimension from the live model.
+    from app.retrieval.embeddings import embed as _embed
+    probe = _embed("dimension probe")
+    expected_dim = len(probe)
+
     async with pool.acquire() as conn:
         existing_chunks = await conn.fetchval("select count(*) from chunks")
+
     if existing_chunks:
-        return existing_chunks
+        stored_dim = await _detect_embedding_dim(pool)
+        if stored_dim is not None and stored_dim != expected_dim:
+            print(
+                f"Embedding dimension mismatch: stored={stored_dim}, model={expected_dim}. "
+                "Wiping stale corpus and re-ingesting with the current model."
+            )
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute("truncate table chunks cascade")
+                    await conn.execute("truncate table statutes cascade")
+        else:
+            return existing_chunks
 
     corpus_dir = Path(__file__).parent / "corpus"
     for filename, act_name, jurisdiction, category, url in CORPUS_MANIFEST:

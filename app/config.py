@@ -26,7 +26,7 @@ class Settings:
     GROQ_API_KEY: str = _require("GROQ_API_KEY")
     EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
     RETRIEVAL_TOP_K: int = int(os.environ.get("RETRIEVAL_TOP_K", 8))
-    CONFIDENCE_THRESHOLD: float = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.55))
+    CONFIDENCE_THRESHOLD: float = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.35))
 
     # --- DB pool / pgvector ---
     DB_POOL_MIN_SIZE: int = int(os.environ.get("DB_POOL_MIN_SIZE", 2))

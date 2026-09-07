@@ -7,8 +7,17 @@ rag.py, and ingest.py need zero changes:
     preload_model()  -> None
     embed(text)      -> list[float]
     embed_batch(...) -> list[list[float]]
+
+FASTEMBED_CACHE_PATH (env var, optional)
+    If set, fastembed stores / reads its downloaded model files from this
+    directory instead of its default ~/.cache/fastembed location.  Set this
+    to a path inside the Render workspace (e.g. /opt/render/project/src/.fastembed_cache)
+    so that model files downloaded during the Render *build phase* are still
+    present when the *run phase* starts -- avoiding a second download that
+    would exceed the 512 MB free-tier memory limit.
 """
 
+import os
 import threading
 from typing import Iterable
 
@@ -22,6 +31,11 @@ _model: TextEmbedding | None = None
 # once the model is loaded, so no lock is needed after that.
 _model_lock = threading.Lock()
 
+# Optional override for the fastembed file-cache directory.  Must be read
+# once at module import time (before the model is loaded) so that both the
+# build-phase preload and the runtime load point to the same path.
+_CACHE_DIR: str | None = os.environ.get("FASTEMBED_CACHE_PATH") or None
+
 
 def get_model() -> TextEmbedding:
     global _model
@@ -31,7 +45,10 @@ def get_model() -> TextEmbedding:
     if _model is None:
         with _model_lock:
             if _model is None:
-                _model = TextEmbedding(model_name=settings.EMBEDDING_MODEL)
+                kwargs: dict = {"model_name": settings.EMBEDDING_MODEL}
+                if _CACHE_DIR:
+                    kwargs["cache_dir"] = _CACHE_DIR
+                _model = TextEmbedding(**kwargs)
     return _model
 
 
