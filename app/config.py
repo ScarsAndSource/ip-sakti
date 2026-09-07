@@ -27,6 +27,15 @@ class Settings:
     EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
     RETRIEVAL_TOP_K: int = int(os.environ.get("RETRIEVAL_TOP_K", 8))
     CONFIDENCE_THRESHOLD: float = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.35))
+    # bge-small-en-v1.5 cosine similarity for a genuinely strong match tops
+    # out around 0.65-0.75 -- it never approaches 1.0 the way a raw score
+    # displayed as a percentage implies. This ceiling is used to rescale the
+    # raw cosine score onto a 0-100% display range that reflects this
+    # model's actual score distribution, so a real strong match reads as
+    # strong instead of "medium". The abstain gate above still runs on the
+    # raw, uncalibrated score -- this only affects the number shown for
+    # answers that already passed that gate.
+    CONFIDENCE_DISPLAY_CEILING: float = float(os.environ.get("CONFIDENCE_DISPLAY_CEILING", 0.70))
 
     # --- DB pool / pgvector ---
     DB_POOL_MIN_SIZE: int = int(os.environ.get("DB_POOL_MIN_SIZE", 2))

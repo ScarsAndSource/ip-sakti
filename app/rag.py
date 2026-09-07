@@ -144,10 +144,21 @@ async def answer_query(
     sources = rows
     answer_text, model_generated = await asyncio.to_thread(generate_answer, query, sources, previous_query)
 
+    # Rescale the raw cosine score onto the model's realistic 0-100% range
+    # (see CONFIDENCE_DISPLAY_CEILING) now that the answer has already
+    # cleared the raw-score abstain gate above. Purely a display transform:
+    # it's monotonic, so ranking between queries is unchanged, and it never
+    # runs on abstained (low-confidence) results.
+    span = settings.CONFIDENCE_DISPLAY_CEILING - settings.CONFIDENCE_THRESHOLD
+    display_confidence = (
+        max(0.0, min(1.0, (confidence - settings.CONFIDENCE_THRESHOLD) / span))
+        if span > 0 else confidence
+    )
+
     result = {
         "answer": answer_text,
         "citations": sources,
-        "confidence": confidence,
+        "confidence": display_confidence,
         "abstained": False,
         "generation_mode": "model" if model_generated else "source_fallback",
     }
