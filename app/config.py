@@ -48,8 +48,11 @@ class Settings:
     EMBED_CONCURRENCY_LIMIT: int = int(os.environ.get("EMBED_CONCURRENCY_LIMIT", 4))
 
     # --- Groq fallback ladder ---
-    GROQ_MODEL: str = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
-    GROQ_FALLBACK_MODEL: str = os.environ.get("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant")
+    # Groq deprecated & decommissioned llama-3.3-70b-versatile and
+    # llama-3.1-8b-instant on 2026-08-16 (announced 2026-06-17). These are
+    # Groq's own recommended 1:1 replacements.
+    GROQ_MODEL: str = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+    GROQ_FALLBACK_MODEL: str = os.environ.get("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b")
     GROQ_MAX_RETRIES: int = int(os.environ.get("GROQ_MAX_RETRIES", 2))
     GROQ_RETRY_BACKOFF_SECONDS: float = float(os.environ.get("GROQ_RETRY_BACKOFF_SECONDS", 0.5))
     GROQ_TIMEOUT_SECONDS: float = float(os.environ.get("GROQ_TIMEOUT_SECONDS", 15))
