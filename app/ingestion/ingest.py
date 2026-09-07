@@ -10,6 +10,8 @@ prep is quick; sourcing and cleaning the statute text is the real work.
 import asyncio
 from pathlib import Path
 
+from pgvector import Vector
+
 from app.ingestion.chunker import chunk_by_section
 from app.retrieval.db import get_pool
 from app.retrieval.embeddings import embed_batch
@@ -45,7 +47,7 @@ async def ingest_file(pool, filepath: Path, act_name: str, jurisdiction: str, ca
             # so a failure partway through doesn't leave an orphaned
             # statute row with only some of its chunks.
             rows = [
-                (statute_id, jurisdiction, category, c["section_ref"], c["chunk_text"], str(vec))
+                (statute_id, jurisdiction, category, c["section_ref"], c["chunk_text"], Vector(vec))
                 for c, vec in zip(chunks, vectors)
             ]
             await conn.executemany(
