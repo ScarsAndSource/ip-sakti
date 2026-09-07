@@ -1,6 +1,7 @@
 import logging
 
 import asyncpg
+from pgvector import Vector
 from pgvector.asyncpg import register_vector
 
 from app.config import settings
@@ -47,14 +48,12 @@ async def search_chunks(
     if top_k < 1:
         raise ValueError(f"top_k must be >= 1, got {top_k}")
 
-    # query_embedding is passed as a plain list[float]; asyncpg will encode it
-    # correctly now that register_vector has been called on every connection.
-    # The ::vector casts that appeared in earlier SQL are intentionally gone --
-    # with the codec registered, the explicit cast is redundant and in some
-    # asyncpg/pgvector version combinations actively conflicts with the
-    # registered type (tries to cast an already-typed value).
+    # A normal Python list is encoded by asyncpg as ``double precision[]``,
+    # not pgvector's ``vector`` type. PostgreSQL then rejects ``vector <=>
+    # double precision[]`` at runtime. Wrap the embedding explicitly so this
+    # is a vector parameter on every supported pgvector/asyncpg version.
     filters = ["jurisdiction = $2"]
-    params: list = [query_embedding, jurisdiction]
+    params: list = [Vector(query_embedding), jurisdiction]
     next_param = 3
     if category:
         filters.append(f"category = ${next_param}")

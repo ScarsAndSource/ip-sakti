@@ -52,7 +52,10 @@ class Settings:
     GROQ_TIMEOUT_SECONDS: float = float(os.environ.get("GROQ_TIMEOUT_SECONDS", 15))
 
     # --- Request-level protection ---
-    QUERY_TIMEOUT_SECONDS: float = float(os.environ.get("QUERY_TIMEOUT_SECONDS", 20))
+    # The Groq ladder can make two primary attempts and one fallback attempt.
+    # Its own default timeouts total 45.5s including retry backoff, so a 20s
+    # route timeout cancelled real generation before the fallback could run.
+    QUERY_TIMEOUT_SECONDS: float = float(os.environ.get("QUERY_TIMEOUT_SECONDS", 55))
     RATE_LIMIT_PER_MINUTE: int = int(os.environ.get("RATE_LIMIT_PER_MINUTE", 30))
 
 

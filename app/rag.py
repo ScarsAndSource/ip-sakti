@@ -97,14 +97,25 @@ async def answer_query(
 
     if settings.HYBRID_SEARCH_ENABLED:
         rows = await hybrid_search(
-            pool, query, query_embedding, jurisdiction, category,
+            # ``category`` is a formulation classification (for example,
+            # ``classical_asu``), while chunks are tagged with legal-source
+            # topics (for example, ``patent_law``). They are not the same
+            # vocabulary, so applying it as a SQL filter hides the whole
+            # corpus for users who completed the assessment.
+            pool, query, query_embedding, jurisdiction, None,
             settings.RETRIEVAL_TOP_K, search_chunks,
         )
     else:
-        rows = await search_chunks(pool, query_embedding, jurisdiction, category, settings.RETRIEVAL_TOP_K)
+        rows = await search_chunks(pool, query_embedding, jurisdiction, None, settings.RETRIEVAL_TOP_K)
 
     if not rows:
-        result = {"answer": ABSTAIN_MESSAGE, "citations": [], "confidence": 0.0, "abstained": True}
+        result = {
+            "answer": ABSTAIN_MESSAGE,
+            "citations": [],
+            "confidence": 0.0,
+            "abstained": True,
+            "generation_mode": "abstained",
+        }
         _answer_cache.set(cache_key, result)
         return result
 
@@ -119,13 +130,20 @@ async def answer_query(
             "citations": rows,
             "confidence": confidence,
             "abstained": True,
+            "generation_mode": "abstained",
         }
         _answer_cache.set(cache_key, result)
         return result
 
     sources = rows
-    answer_text = await asyncio.to_thread(generate_answer, query, sources, previous_query)
+    answer_text, model_generated = await asyncio.to_thread(generate_answer, query, sources, previous_query)
 
-    result = {"answer": answer_text, "citations": sources, "confidence": confidence, "abstained": False}
+    result = {
+        "answer": answer_text,
+        "citations": sources,
+        "confidence": confidence,
+        "abstained": False,
+        "generation_mode": "model" if model_generated else "source_fallback",
+    }
     _answer_cache.set(cache_key, result)
     return result

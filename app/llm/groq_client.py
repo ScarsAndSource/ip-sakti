@@ -86,7 +86,12 @@ def _extractive_fallback(query: str, sources: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def generate_answer(query: str, sources: list[dict], previous_query: str | None = None) -> str:
+def generate_answer(query: str, sources: list[dict], previous_query: str | None = None) -> tuple[str, bool]:
+    """Return the answer and whether Groq actually generated it.
+
+    The boolean prevents a source-excerpt fallback from being presented to a
+    user as though it were a successful LLM response.
+    """
     context = _build_context(sources)
 
     attempts = [(settings.GROQ_MODEL, settings.GROQ_MAX_RETRIES)]
@@ -97,7 +102,7 @@ def generate_answer(query: str, sources: list[dict], previous_query: str | None 
     for model, max_retries in attempts:
         for attempt in range(1, max_retries + 1):
             try:
-                return _call_model(model, query, context, previous_query)
+                return _call_model(model, query, context, previous_query), True
             except Exception as exc:
                 last_error = exc
                 logger.warning(
@@ -111,4 +116,4 @@ def generate_answer(query: str, sources: list[dict], previous_query: str | None 
         "All Groq models exhausted for query=%r; falling back to extractive answer. Last error: %s",
         query, last_error,
     )
-    return _extractive_fallback(query, sources)
+    return _extractive_fallback(query, sources), False

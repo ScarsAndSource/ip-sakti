@@ -132,7 +132,10 @@ function renderAnswer(data, previousQuery) {
   const contextNote = previousQuery
     ? `<p class="text-xs text-[#717975] mb-2">↩ Follow-up on: <em>${escapeHTML(previousQuery.length > 80 ? previousQuery.slice(0, 80) + "…" : previousQuery)}</em></p>`
     : "";
-  answerBox.innerHTML = contextNote + `<p class="serif text-lg leading-relaxed">${escapeHTML(data.answer)}</p>`;
+  const generationNotice = data.generation_mode === "source_fallback"
+    ? `<p class="mb-3 rounded border border-[#a6740a] bg-[#fff5d6] p-3 text-sm text-[#6e4d00]">The language model did not respond, so this response contains source excerpts only—not an AI-generated answer. Please retry.</p>`
+    : "";
+  answerBox.innerHTML = contextNote + generationNotice + `<p class="serif text-lg leading-relaxed">${escapeHTML(data.answer)}</p>`;
 
   document.getElementById("disclaimer-text").textContent = data.disclaimer;
 
