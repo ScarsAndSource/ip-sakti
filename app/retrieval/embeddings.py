@@ -66,9 +66,12 @@ class _HFInferenceEmbedder:
         import requests as _req
         self._session = _req.Session()
         self._session.headers.update({"Authorization": f"Bearer {token}"})
+        # HF fully decommissioned api-inference.huggingface.co (the hostname
+        # no longer resolves at all -- this is not a token or network issue).
+        # All Inference API traffic now goes through the router domain.
         self._url = (
-            f"https://api-inference.huggingface.co"
-            f"/pipeline/feature-extraction/{model_name}"
+            f"https://router.huggingface.co/hf-inference/models"
+            f"/{model_name}/pipeline/feature-extraction"
         )
 
     def embed(self, texts: list[str], **_kw) -> Iterable[np.ndarray]:
