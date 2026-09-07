@@ -79,6 +79,9 @@ document.getElementById("query-form").addEventListener("submit", async (e) => {
   const query = document.getElementById("query-input").value.trim();
   if (!query) return;
 
+  // Read the previous question (set after a successful response below).
+  const previousQuery = sessionStorage.getItem("ipsakti_last_query") || null;
+
   const btn = document.getElementById("submit-btn");
   const errBox = document.getElementById("error-box");
   const answerBox = document.getElementById("answer-box");
@@ -94,6 +97,7 @@ document.getElementById("query-form").addEventListener("submit", async (e) => {
         query,
         jurisdiction,
         classification: (classification && classification.category !== "unclassified") ? classification : null,
+        previous_query: previousQuery,
       }),
     });
 
@@ -110,7 +114,9 @@ document.getElementById("query-form").addEventListener("submit", async (e) => {
     }
 
     const data = await res.json();
-    renderAnswer(data);
+    // Persist this question as context for the next follow-up.
+    sessionStorage.setItem("ipsakti_last_query", query);
+    renderAnswer(data, previousQuery);
   } catch (err) {
     errBox.textContent = err.message;
     errBox.classList.remove("hidden");
@@ -120,9 +126,13 @@ document.getElementById("query-form").addEventListener("submit", async (e) => {
   }
 });
 
-function renderAnswer(data) {
+function renderAnswer(data, previousQuery) {
   const answerBox = document.getElementById("answer-box");
-  answerBox.innerHTML = `<p class="serif text-lg leading-relaxed">${escapeHTML(data.answer)}</p>`;
+  // Show a subtle "follow-up context" badge when we expanded the query.
+  const contextNote = previousQuery
+    ? `<p class="text-xs text-[#717975] mb-2">↩ Follow-up on: <em>${escapeHTML(previousQuery.length > 80 ? previousQuery.slice(0, 80) + "…" : previousQuery)}</em></p>`
+    : "";
+  answerBox.innerHTML = contextNote + `<p class="serif text-lg leading-relaxed">${escapeHTML(data.answer)}</p>`;
 
   document.getElementById("disclaimer-text").textContent = data.disclaimer;
 
