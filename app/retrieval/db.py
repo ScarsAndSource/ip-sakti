@@ -52,11 +52,11 @@ async def search_chunks(
     # not pgvector's ``vector`` type. PostgreSQL then rejects ``vector <=>
     # double precision[]`` at runtime. Wrap the embedding explicitly so this
     # is a vector parameter on every supported pgvector/asyncpg version.
-    filters = ["jurisdiction = $2"]
+    filters = ["c.jurisdiction = $2"]
     params: list = [Vector(query_embedding), jurisdiction]
     next_param = 3
     if category:
-        filters.append(f"category = ${next_param}")
+        filters.append(f"c.category = ${next_param}")
         params.append(category)
         next_param += 1
 
@@ -88,10 +88,10 @@ async def fetch_all_chunks_for_bm25(
     search_chunks) so hybrid.py builds a BM25 index over exactly the set
     dense search is allowed to return from -- never a broader corpus than
     the hard filter permits."""
-    filters = ["jurisdiction = $1"]
+    filters = ["c.jurisdiction = $1"]
     params: list = [jurisdiction]
     if category:
-        filters.append("category = $2")
+        filters.append("c.category = $2")
         params.append(category)
 
     where_clause = " AND ".join(filters)
