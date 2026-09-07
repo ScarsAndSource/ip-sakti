@@ -1,82 +1,289 @@
-# IP-SAKTI Sahayak - Backend (India-only slice, v0)
+# IP-SAKTI Sahayak
+
+**AI-assisted legal and regulatory guidance for Ayurveda, traditional knowledge, and Indian IP law.**
+
+Built for Smart India Hackathon 2026 — Problem Statement **SIH26045**.
+
+---
+
+## The problem
+
+An Ayurveda entrepreneur or small manufacturer building a new formulation has no
+easy way to know, before they spend money finding out the hard way:
+
+- Is this product patentable, or does it already belong to public traditional
+  knowledge?
+- Is it a "new drug" that needs government approval before it can be sold —
+  and if so, which approval pathway?
+- If it's made from an Indian plant or biological material, is there a
+  separate government clearance required before *any* patent filing,
+  anywhere in the world?
+
+Generic AI chatbots make this worse, not better: a Stanford RegLab study
+found general-purpose LLMs give hallucinated or unreliable answers to legal
+questions **58–88% of the time**. In this domain, a wrong answer isn't a bad
+UX — it's a rejected patent application or, in the biodiversity-law case, a
+criminal penalty.
+
+**IP-SAKTI Sahayak** is the complementary gap to India's existing
+Traditional Knowledge Digital Library (TKDL): TKDL protects patent
+**examiners** from granting bad patents by giving them prior art to cite.
+This tool helps the **innovator** understand their own legal position
+*before* an examiner or a lawyer is ever involved.
+
+---
+
+## What it actually does
+
+Four layers, not one chatbot call:
+
+1. **Classifier** — a transparent, hand-written decision tree (not a
+   black-box model) that sorts any formulation into one of six legal
+   categories, purely from structured yes/no answers. The classification
+   decision is never made by an LLM — only free-text disambiguation, when
+   genuinely needed, feeds into the deterministic branching.
+2. **Grounded retrieval (RAG)** — answers free-text legal questions using
+   hybrid dense + keyword search over the *actual* statutory text, never
+   from the model's memory. Every claim is expected to trace back to a
+   real, cited section.
+3. **Jurisdiction filter** — India vs. international law is enforced as a
+   hard `WHERE` clause on the retrieval query, not a prompt instruction an
+   LLM could ignore.
+4. **Trust layer** — every answer carries a real retrieval-confidence score
+   and a citation list; when confidence is too low, the system says so and
+   points to a registered patent agent instead of guessing. Every query is
+   logged to an audit trail.
+
+---
+
+## The six-bucket classifier
+
+Every Ayurveda formulation is routed into exactly one of these, based on
+four structured questions (a fifth free-text question appears only when
+needed to disambiguate):
+
+| Category | Trigger | Legal pathway |
+|---|---|---|
+| `classical_asu` | Follows a named classical text exactly (Charaka Samhita, etc.) | Section 3(a), D&C Act — no DCGI pre-approval needed |
+| `patent_proprietary_asu` | Disease claim, classical base with a new combination/indication | Section 3(a)/(h), D&C Act — needs Rule 158B pilot-study proof |
+| `phytopharmaceutical` | Disease claim, non-classical, description matches purified/standardized-extract markers | CDSCO Phytopharmaceutical guidelines — full new-drug pathway |
+| `cosmetic` | External use, no disease claim | Cosmetic Rules — lighter regime, no GMP requirement |
+| `nutraceutical` | Internal use, wellness claim, no disease claim | FSSAI jurisdiction, not CDSCO/AYUSH |
+| `unclassified` | Answers don't cleanly resolve, or a disambiguating description is missing | System explicitly abstains rather than guess, and asks a follow-up |
+
+**Cross-cutting flag (`bda_flag`):** independent of category, if the
+formulation uses a biological resource sourced from India, the system flags
+that **National Biodiversity Authority clearance under BDA Section 6 is
+required before any patent filing, in India or abroad** — skipping it
+carries a penalty of up to 5 years' imprisonment or a ₹10 lakh fine. This is
+the branch most competing tools miss because they stop at "is it
+patentable" and never ask where the raw material came from.
+
+The classifier also returns `needs_review`, and when a free-text keyword
+match drove the decision, the exact `matched_keyword` and surrounding
+`review_snippet` — so a human can verify an edge-case result in seconds
+instead of re-reading the whole submission.
+
+---
+
+## How the grounded answer engine works
+
+- **Retrieval:** hybrid dense (embedding cosine similarity) + BM25 keyword
+  search over the ingested statute chunks, fused with reciprocal rank
+  fusion, filtered by jurisdiction and (when known) formulation category at
+  the SQL level before anything reaches the language model.
+- **Chunking:** statutes are split at section/sub-section boundaries, never
+  by arbitrary token windows — a citation that quotes half of a section is
+  treated as worse than no citation at all.
+- **Generation:** Groq (`llama-3.3-70b-versatile`, with an automatic
+  fallback to `llama-3.1-8b-instant` on repeated failures) answers strictly
+  from the retrieved chunks.
+- **Confidence:** a real number computed from retrieval agreement — not a
+  number the model makes up about its own certainty. Below the configured
+  threshold, the system abstains and recommends a registered patent agent
+  or AYUSH-recognized IP cell instead of answering.
+- **Caching:** embeddings and full answers are cached (single-flight, so
+  concurrent identical queries don't trigger duplicate embedding calls),
+  since legal Q&A has heavy query overlap in practice.
+- **Every response** carries a fixed disclaimer: *"This is not legal
+  advice. Consult a registered patent agent or AYUSH-recognized IP cell."*
+
+---
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| API framework | FastAPI + Uvicorn |
+| Database | PostgreSQL with `pgvector`, hosted on Supabase |
+| Embeddings | `sentence-transformers` (`BAAI/bge-small-en-v1.5`, 384-dim) |
+| Keyword search | `rank-bm25` |
+| LLM generation | Groq (`llama-3.3-70b-versatile`, primary) |
+| Async DB driver | `asyncpg` |
+| Validation | Pydantic |
+| Frontend | Static HTML/CSS/vanilla JS, no build step, no framework |
+
+---
+
+## Project structure
+
+```
+ip-sakti-backend/
+├── app/
+│   ├── main.py                 # FastAPI app, routes, CORS, rate limiting
+│   ├── config.py                # env-driven settings, fails fast if misconfigured
+│   ├── rag.py                    # orchestrates retrieval -> generation -> confidence
+│   ├── ratelimit.py               # fixed-window rate limiter for /query
+│   ├── cache.py                    # TTL cache with single-flight dedup
+│   ├── classifier/
+│   │   └── classifier.py            # the six-bucket decision tree
+│   ├── retrieval/
+│   │   ├── embeddings.py              # dense embedding model wrapper
+│   │   ├── bm25.py                     # keyword search index
+│   │   ├── hybrid.py                    # RRF fusion + jurisdiction/category filters
+│   │   └── db.py                         # asyncpg pool + pgvector codec registration
+│   ├── llm/
+│   │   └── groq_client.py                 # Groq call with model fallback ladder
+│   ├── audit/
+│   │   └── logger.py                       # writes/reads audit_log
+│   ├── ingestion/
+│   │   ├── chunker.py                       # section-boundary-aware chunking
+│   │   ├── ingest.py                         # embeds + inserts the corpus
+│   │   └── corpus/                            # raw statute text files
+│   └── models/
+│       └── schemas.py                          # all Pydantic request/response models
+├── frontend/
+│   ├── config.js                                # API_BASE + shared helpers
+│   ├── index.html                                # landing + jurisdiction selector
+│   ├── wizard.html                                # 4(-5) step classifier flow
+│   ├── result.html                                 # classification result screen
+│   ├── query.html                                   # grounded Q&A + citations
+│   └── audit.html                                    # audit log viewer
+├── schema.sql                                          # Postgres/pgvector schema
+├── requirements.txt
+└── .env.example
+```
+
+---
+
+## API reference
+
+### `POST /classify`
+```json
+// Request
+{
+  "internal_or_external": "internal",
+  "follows_classical_text_exactly": true,
+  "makes_disease_claim": false,
+  "uses_indian_biological_resource": true,
+  "free_text_description": null
+}
+```
+```json
+// Response
+{
+  "category": "classical_asu",
+  "legal_pathway": "Classical ASU drug, Section 3(a) D&C Act — ...",
+  "bda_flag": true,
+  "reasoning": "Made exactly per an authoritative classical text ...",
+  "needs_review": false,
+  "matched_keyword": null,
+  "review_snippet": null
+}
+```
+
+### `POST /query`
+```json
+// Request
+{
+  "query": "Can I patent a modified turmeric extract with a new ratio?",
+  "jurisdiction": "india",
+  "classification": null
+}
+```
+```json
+// Response
+{
+  "answer": "...",
+  "citations": [
+    {
+      "act_name": "The Patents Act, 1970",
+      "section_ref": "Section 3(p)",
+      "jurisdiction": "india",
+      "source_url": null,
+      "chunk_text": "an invention which in effect is traditional knowledge ...",
+      "score": 0.87
+    }
+  ],
+  "confidence": 0.81,
+  "abstained": false,
+  "disclaimer": "This is not legal advice. Consult a registered patent agent or AYUSH-recognized IP cell."
+}
+```
+
+### `GET /audit/recent?limit=20`
+Returns the most recent logged queries: `query`, `classification_branch`,
+`jurisdiction`, `confidence_score`, `abstained`, `created_at`.
+
+### Operational endpoints
+- `GET /health` — liveness
+- `GET /health/ready` — readiness (checks DB connection + embedding model loaded)
+- `GET /admin/cache-stats` — embedding/answer cache hit rates
+- `POST /admin/reindex-bm25` — clears the in-memory BM25 index (call after re-ingesting)
+
+---
+
+## Corpus currently ingested
+
+| Act | Sections ingested | Jurisdiction |
+|---|---|---|
+| The Patents Act, 1970 | Full text, as amended till 01-08-2024 | India |
+| The Drugs and Cosmetics Act, 1940 | Full text | India |
+| The Biological Diversity Act, 2002 | Full text | India |
+
+Statute text is chunked at section boundaries and cross-checked against the
+official IPIndia gazette PDF, not reconstructed from model memory.
+
+---
 
 ## Setup
-1. Create a free Supabase project. In its SQL editor, run `schema.sql`.
-2. Copy `.env.example` to `.env` and fill in `DATABASE_URL` (Supabase connection
-   string, "Session mode" pooler recommended) and `GROQ_API_KEY` (free at
-   console.groq.com).
-3. `pip install -r requirements.txt`
-4. Drop statute text into `app/ingestion/corpus/` (see "The real bottleneck" below),
-   then `python -m app.ingestion.ingest`.
-5. `uvicorn app.main:app --reload`
-6. `GET /health`, `POST /classify`, `POST /query`.
 
-## What's real vs stubbed (don't overstate this in the pitch)
-- **Real:** classifier (fully deterministic, all 6 branches + BDA flag), dense
-  retrieval with hard jurisdiction/category SQL filtering, confidence-gated
-  abstention, audit logging, section-boundary chunker that fails loud on bad
-  source text instead of silently degrading citations.
-- **Stubbed:** BM25 + RRF fusion (`app/retrieval/bm25.py` exists but isn't wired
-  into `rag.py` yet - dense-only for now). No reranker (Cohere rerank was cut
-  deliberately - see decisions below). No multilingual layer yet. International
-  jurisdiction mode has the schema/filter support but no corpus.
-- **Not started:** free-text intent parsing to auto-fill `ClassifierAnswers`
-  from a user's natural-language description (currently the frontend must ask
-  the 4 structured questions directly).
+```bash
+git clone <this-repo>
+cd ip-sakti-backend
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # fill in DATABASE_URL (Supabase session-pooler URI) and GROQ_API_KEY
+```
 
-Say this plainly to judges rather than rounding up - the doc you're working
-from specifically flags inflated completion numbers as a credibility risk in
-this PS category, more so than most.
+Run the schema once in the Supabase SQL editor (`schema.sql`), then:
 
-## Key decisions and why (so you can defend them live)
-- **Postgres/pgvector over Qdrant:** corpus is small enough that ANN speed
-  isn't the bottleneck; SQL WHERE filters are more auditable under judge
-  questioning than nested Qdrant filter dicts, and you already know Supabase.
-- **Local embeddings (sentence-transformers) over Cohere:** no API cost, no
-  external dependency to keep alive on demo day, and at this corpus size the
-  quality gap won't be your problem - corpus correctness will be.
-- **Classifier is a hard-coded decision tree, not an LLM call:** a legally
-  load-bearing branch should be inspectable and reproducible. If a judge asks
-  "why did it classify this as X," the honest answer should be a line of code,
-  not "the model decided."
-- **Chunker raises on malformed source text instead of falling back to token
-  windows:** a half-cited section is worse than a missing one. This will
-  surface corpus quality problems early, which is the point.
+```bash
+python -m app.ingestion.ingest     # embeds and loads the corpus
+uvicorn app.main:app --reload      # starts the API on :8000
+```
 
-## The real bottleneck: corpus, not code
-This backend is close to feature-complete for an India-only demo slice. What's
-missing is the actual statute text in `app/ingestion/corpus/` - Patents Act
-1970, D&C Act 1940 + Rules, Biological Diversity Act 2002. That's legal-research
-work, not engineering work, and it's where a wrong citation costs you more than
-a missing feature would. Assign this to whoever's doing domain research, and
-have them fact-check every section reference against the actual gazette text,
-not a secondary summary site.
+Serve the frontend separately (any static file server, e.g.
+`python -m http.server` from `frontend/`) and point `frontend/config.js`
+at your running backend URL.
 
-## 7-day plan against this codebase
-- **Day 1-2:** Corpus sourcing + cleanup (the bottleneck - start this in
-  parallel with everything else, not after). Get `ingest.py` running end to end
-  against at least one real statute.
-- **Day 3:** Wire up `/classify` -> `/query` end to end from a minimal frontend
-  or curl. Confirm the abstention path actually fires on a query the corpus
-  doesn't cover - don't just assume it works.
-- **Day 4:** Wire BM25 + RRF fusion into `rag.py` if dense-only retrieval is
-  visibly missing exact-term queries (e.g. "Section 3(d)" typed verbatim).
-  Skip this step if dense-only is already scoring well - don't add complexity
-  you can't defend under questioning.
-- **Day 5:** BDA/NBA flag surfacing in the API response (currently returned as
-  a boolean on `ClassificationResult` - the frontend needs to actually render
-  it as a hard stop, not a footnote).
-- **Day 6:** Add the international-mode corpus (WIPO GRATK treaty, TRIPS
-  27.3(b), Nagoya Protocol) if India-only is solid. Don't start this before
-  India-only is bulletproof.
-- **Day 7:** Freeze the backend. Stop touching code before evaluation - per the
-  doc's own advice from past winners, a smaller working scope beats a bigger
-  half-wired one.
+---
 
-## Where this will break if you don't fix it
-- `CONFIDENCE_THRESHOLD=0.55` is a guess, not a tuned value - run real queries
-  against your actual corpus and adjust before demo day.
-- The classifier's free-text keyword match for phytopharmaceutical vs
-  proprietary-ASU (`PHYTOPHARM_KEYWORDS` in `classifier.py`) is a crude
-  heuristic. It will misclassify an edge case if a judge phrases their example
-  cleverly - know this going in, don't get caught flat-footed.
+## Honest project status
+
+This project treats an inflated completion percentage as a bigger
+credibility risk than an honest gap — the whole point of the product is
+trustworthy disclosure, so the README holds itself to that standard too.
+
+**Working end-to-end today:**
+- Classifier (all six categories, tested against the real decision logic)
+- Grounded retrieval + generation against the ingested India corpus
+- Confidence scoring and abstention
+- Audit logging
+- Frontend wired to the real API contract (no fabricated data anywhere in
+  the UI — the "show in plain English" citation feature is deliberately
+  disabled rather than faked, since it isn't backed by a real LLM call yet)
+
+---
+
+## Team : code4life, Manipal University Jaipur
